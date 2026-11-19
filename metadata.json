@@ -1,0 +1,6 @@
+{
+  "name": "AlcoSkype 2.0 Pro",
+  "description": "Приватный виртуальный бар и WebRTC видеочат до 4 человек (Иркутск — Минск) с входом через ящик пива, MediaPipe AR-играми и 3 темами оформления.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

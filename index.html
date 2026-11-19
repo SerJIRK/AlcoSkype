@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="ru" data-theme="bar">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>AlcoSkype 2.0 Pro — Приватный видео-бар Иркутск ↔ Минск</title>
+    <meta name="description" content="Приватный виртуальный бар и WebRTC видеочат до 4 человек (Иркутск — Минск) с входом через ящик пива, MediaPipe AR-играми и 3 темами оформления." />
+    <meta property="og:title" content="AlcoSkype 2.0 Pro — Приватный видео-бар Иркутск ↔ Минск" />
+    <meta property="og:description" content="Приватный виртуальный бар и WebRTC видеочат до 4 человек с входом через ящик пива, AR-играми без мышки и 3 темами оформления." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Шрифты 2+1: Oswald (дисплей), Manrope (текст), JetBrains Mono (часы/таймер) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;600;700;800&family=Oswald:wght@500;700&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="./css/themes.css" />
+    <link rel="stylesheet" href="./css/style.css" />
+
+    <!-- PeerJS 1.5.4 для детерминированного P2P-сигналинга без собственного сервера -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  </head>
+  <body>
+    <!-- Фоновый холст с пузырьками пива для Club Gate и экрана входа -->
+    <canvas id="bar-bubbles-canvas" class="bar-bubbles-canvas" aria-hidden="true"></canvas>
+
+    <!-- ==================== ЭКРАН 1: CLUB GATE (ЗАЩИТА БАРА) ==================== -->
+    <section id="screen-gate" class="screen">
+      <div class="gate-card glass-panel">
+        <div class="neon-sign">ОТКРЫТО · 18+</div>
+        <h1 class="brand-logo brand-logo--sm">AlcoSkype <span>2.0 Pro</span></h1>
+        <p class="gate-subtitle">Закрытый бар для своих (Иркутск ↔ Минск). Введи секретный ключ клуба — чужим здесь не наливают.</p>
+
+        <form id="gate-form" class="stack-form">
+          <label class="field-label" for="gate-key-input">Секретный ключ клуба</label>
+          <input
+            id="gate-key-input"
+            type="password"
+            class="text-input mono"
+            placeholder="Например: IRK-MINSK-2026"
+            autocomplete="off"
+            required
+          />
+          <div id="gate-error" class="form-error" role="alert"></div>
+          <button id="gate-unlock-btn" type="submit" class="btn btn--primary btn--lg btn--full">
+            Открыть дверь в бар
+          </button>
+        </form>
+        <p class="gate-footnote muted">Пока ключ не введён, никакие сетевые подключения не создаются.</p>
+      </div>
+    </section>
+
+    <!-- ==================== ЭКРАН 2: ВХОД «ЯЩИК ПИВА» ==================== -->
+    <section id="screen-login" class="screen">
+      <header class="login-topbar">
+        <div class="login-topbar__left">
+          <select id="login-theme-select" class="theme-select select-input" aria-label="Выбор темы оформления"></select>
+        </div>
+        <button id="open-support-btn" type="button" class="btn btn--ghost btn--sm">
+          Техподдержка / Забыл PIN
+        </button>
+      </header>
+
+      <main class="login-stage">
+        <div class="login-hero">
+          <div class="neon-sign neon-sign--flicker">ОТКРЫТО</div>
+          <h1 class="brand-logo">AlcoSkype</h1>
+          <p id="login-accounts-hint" class="login-hint">Введи свой 4-значный PIN по крышкам банок</p>
+        </div>
+
+        <div class="crate-panel glass-panel">
+          <div class="pin-bar">
+            <div id="pin-dots" class="pin-dots" aria-live="polite"></div>
+            <button id="pin-clear-btn" type="button" class="btn btn--ghost btn--sm">Сброс</button>
+          </div>
+          <div id="pin-status" class="pin-status">Кликай по банкам — введи 4-значный PIN</div>
+
+          <!-- Вид сверху: ящик 3×3 с 9 банками пива -->
+          <div class="beer-crate-frame">
+            <div id="beer-crate" class="beer-crate" role="group" aria-label="Ящик пива для ввода PIN-кода"></div>
+          </div>
+
+          <div class="login-actions">
+            <button id="open-create-modal-btn" type="button" class="btn btn--secondary btn--full">
+              Создать нового собутыльника
+            </button>
+          </div>
+        </div>
+      </main>
+    </section>
+
+    <!-- ==================== ЭКРАН 3: ЛОББИ КЛУБА ==================== -->
+    <section id="screen-lobby" class="screen">
+      <header class="app-header glass-panel">
+        <div class="app-header__brand">AlcoSkype</div>
+        <div id="lobby-user-badge" class="app-header__user"></div>
+        <div class="app-header__actions">
+          <select id="lobby-theme-select" class="theme-select select-input" aria-label="Тема"></select>
+          <button id="lobby-settings-btn" type="button" class="btn btn--ghost btn--sm">Настройки</button>
+          <button id="lobby-logout-btn" type="button" class="btn btn--danger btn--sm">Выйти</button>
+        </div>
+      </header>
+
+      <main class="lobby-main">
+        <div class="lobby-hero glass-panel">
+          <div class="lobby-hero__text">
+            <h2>Барная стойка клуба</h2>
+            <p id="lobby-sync-mode" class="muted">Синхронизация: PeerJS DataChannel</p>
+          </div>
+          <div class="lobby-hero__cta">
+            <button id="call-all-btn" type="button" class="btn btn--primary btn--lg">
+              🍻 Позвать всех в бар
+            </button>
+            <button id="call-bot-btn" type="button" class="btn btn--secondary">
+              🤖 Тест с Ботом-Петровичем
+            </button>
+          </div>
+        </div>
+
+        <section class="lobby-section">
+          <div class="section-head">
+            <h3>Собутыльники у стойки (до 4 человек)</h3>
+            <div class="section-head__tools">
+              <button id="open-device-check-btn" type="button" class="btn btn--ghost btn--sm">
+                🎥 Проверка камеры и звука
+              </button>
+              <button id="open-lobby-chat-btn" type="button" class="btn btn--ghost btn--sm">
+                💬 Чат клуба
+              </button>
+            </div>
+          </div>
+          <div id="lobby-members-grid" class="members-grid"></div>
+        </section>
+      </main>
+    </section>
+
+    <!-- ==================== ЭКРАН 4: ВИДЕОЗВОНОК (SKYPE + 2×2 + AR) ==================== -->
+    <section id="screen-call" class="screen screen--call">
+      <!-- Видеосцена -->
+      <div id="video-stage" class="video-stage stage--duo">
+        <div id="remote-videos-container" class="remote-videos-container"></div>
+
+        <!-- Своё видео (PiP в режиме 2 чел, либо 1 из 4 плиток в сетке 2×2) -->
+        <div id="local-pip-wrap" class="video-tile video-tile--local">
+          <video id="local-video" autoplay playsinline muted></video>
+          <div class="video-tile__footer">
+            <span id="local-tile-name" class="video-tile__label">Ты</span>
+            <div class="video-tile__drinks-wrap">
+              <span id="local-tile-drinks" class="video-tile__drinks mono">0 🍺</span>
+              <button id="local-drink-btn" type="button" class="btn-drink-mini">+1 🍺</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Холст AR-игр (бутылка, муха, ковбои, свеча, полиграф, чоканье) -->
+        <canvas id="ar-overlay-canvas" class="ar-overlay-canvas"></canvas>
+      </div>
+
+      <!-- Информационная панель в левом верхнем углу: Иркутск / Минск / Таймер / Счётчик -->
+      <aside id="call-hud" class="call-hud glass-panel">
+        <div class="hud-header">
+          <span class="hud-title">Иркутск ↔ Минск</span>
+          <button id="hud-collapse-btn" type="button" class="hud-toggle-btn" title="Свернуть/развернуть панель">▾</button>
+        </div>
+        <div id="hud-body" class="hud-body">
+          <div class="hud-clock">
+            <div class="hud-clock__row">
+              <span class="hud-clock__city">Время в Иркутске:</span>
+              <strong id="hud-irkutsk-time" class="mono">--:--</strong>
+            </div>
+            <div id="hud-irkutsk-caption" class="hud-clock__caption"></div>
+          </div>
+
+          <div class="hud-clock">
+            <div class="hud-clock__row">
+              <span class="hud-clock__city">Время в Минске:</span>
+              <strong id="hud-minsk-time" class="mono">--:--</strong>
+            </div>
+            <div id="hud-minsk-caption" class="hud-clock__caption"></div>
+          </div>
+
+          <div class="hud-divider"></div>
+
+          <div class="hud-timer">
+            <div class="hud-clock__row">
+              <span>Общий таймер пьянки:</span>
+              <strong id="hud-session-timer" class="mono accent-text">00:00:00</strong>
+            </div>
+            <div id="hud-drink-stage" class="hud-stage-title">Стадия 1: Приличные люди</div>
+            <div id="hud-drink-subtitle" class="hud-clock__caption"></div>
+          </div>
+
+          <div class="hud-divider"></div>
+
+          <div class="hud-totals">
+            <span>Выпито компанией:</span>
+            <strong id="hud-total-mugs" class="mono">0 кружек</strong>
+            <span class="meta-sep">·</span>
+            <strong id="hud-total-liters" class="mono accent-text">0.0 л</strong>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Выдвижная панель 1: AR-Игры без мышки и Маски -->
+      <aside id="drawer-games" class="call-drawer glass-panel">
+        <div class="drawer-head">
+          <h3>🎮 AR-Игры и Троллинг</h3>
+          <button type="button" class="icon-close" data-close-drawer aria-label="Закрыть">✕</button>
+        </div>
+        <div class="drawer-body">
+          <div class="vision-note">Статус камеры/AR: <strong id="vision-status-label">Загрузка...</strong></div>
+
+          <div class="field-group">
+            <label class="field-label" for="ar-target-select">Жертва для мухи / полиграфа / вертолётов</label>
+            <select id="ar-target-select" class="select-input"></select>
+          </div>
+
+          <div class="games-stack">
+            <div class="game-row">
+              <button id="game-bottle-btn" type="button" class="btn btn--secondary btn--full">🍺 Отбей бутылку</button>
+              <span class="game-score mono">Счёт: <strong id="games-bottle-score">0</strong></span>
+            </div>
+            <button id="game-fly-btn" type="button" class="btn btn--secondary btn--full">🪰 Запустить муху другу</button>
+            <button id="game-cowboy-btn" type="button" class="btn btn--secondary btn--full">🤠 Алко-ковбои (дуэль на руку)</button>
+            <button id="game-breath-btn" type="button" class="btn btn--secondary btn--full">🕯️ Алкотестер / Задуй свечу</button>
+            <button id="game-polygraph-btn" type="button" class="btn btn--secondary btn--full">📡 Пьяный полиграф</button>
+            <button id="game-helicopters-btn" type="button" class="btn btn--secondary btn--full">🚁 Включить «Вертолёты» (10с)</button>
+            <button id="game-helmet-btn" type="button" class="btn btn--secondary btn--full">🪖 Надеть пивную каску</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Выдвижная панель 2: Виртуальные фоны -->
+      <aside id="drawer-bg" class="call-drawer glass-panel">
+        <div class="drawer-head">
+          <h3>🖼️ Виртуальный фон</h3>
+          <button type="button" class="icon-close" data-close-drawer aria-label="Закрыть">✕</button>
+        </div>
+        <div class="drawer-body">
+          <div id="call-bg-grid" class="bg-grid"></div>
+          <div class="field-group">
+            <label class="field-label" for="call-blur-slider">Сила размытия (Blur)</label>
+            <input id="call-blur-slider" type="range" min="4" max="32" value="14" class="range-input" />
+          </div>
+          <input id="call-bg-upload" type="file" accept="image/*" class="hidden" />
+        </div>
+      </aside>
+
+      <!-- Выдвижная панель 3: Саундборд -->
+      <aside id="drawer-sound" class="call-drawer glass-panel">
+        <div class="drawer-head">
+          <h3>🔊 Саундборд бара</h3>
+          <button type="button" class="icon-close" data-close-drawer aria-label="Закрыть">✕</button>
+        </div>
+        <div class="drawer-body">
+          <div class="sfx-grid">
+            <button type="button" class="btn btn--secondary" data-sfx="drumroll">🥁 Барабанная дробь</button>
+            <button type="button" class="btn btn--secondary" data-sfx="crickets">🦗 Сверчки (кринж)</button>
+            <button type="button" class="btn btn--secondary" data-sfx="trombone">🎺 Грустный тромбон</button>
+            <button type="button" class="btn btn--secondary" data-sfx="bottlePop">🍾 Пробка + налив</button>
+            <button type="button" class="btn btn--secondary" data-sfx="cheers">🥂 Звон бокалов</button>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="master-volume-slider">Громкость эффектов</label>
+            <input id="master-volume-slider" type="range" min="0" max="100" value="75" class="range-input" />
+          </div>
+          <button id="master-mute-btn" type="button" class="btn btn--ghost btn--full">🔊 Звук включён</button>
+        </div>
+      </aside>
+
+      <!-- Выдвижная панель 4: Чат во время звонка -->
+      <aside id="drawer-chat" class="call-drawer glass-panel">
+        <div class="drawer-head">
+          <h3>💬 Чат бара</h3>
+          <button type="button" class="icon-close" data-close-drawer aria-label="Закрыть">✕</button>
+        </div>
+        <div class="drawer-body drawer-body--chat">
+          <div id="call-chat-messages" class="chat-messages"></div>
+          <div id="call-quick-toasts" class="quick-toasts"></div>
+          <form id="call-chat-form" class="chat-form">
+            <input id="call-chat-input" type="text" class="text-input" placeholder="Написать тост..." autocomplete="off" />
+            <button type="submit" class="btn btn--primary">→</button>
+          </form>
+        </div>
+      </aside>
+
+      <!-- Нижняя панель управления звонком -->
+      <nav id="call-controls-bar" class="call-controls glass-panel" aria-label="Управление звонком">
+        <button id="ctrl-mic-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">🎙️</span>
+          <span class="ctrl-btn__label">Микро</span>
+        </button>
+        <button id="ctrl-cam-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">📹</span>
+          <span class="ctrl-btn__label">Камера</span>
+        </button>
+        <button id="ctrl-drink-btn" type="button" class="ctrl-btn ctrl-btn--amber">
+          <span class="ctrl-btn__icon">🍺</span>
+          <span class="ctrl-btn__label">+1 🍺</span>
+        </button>
+        <button id="ctrl-clink-btn" type="button" class="ctrl-btn ctrl-btn--amber">
+          <span class="ctrl-btn__icon">🍻</span>
+          <span class="ctrl-btn__label">Чокнуться</span>
+        </button>
+        <button id="ctrl-games-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">🎮</span>
+          <span class="ctrl-btn__label">AR-Игры</span>
+        </button>
+        <button id="ctrl-bg-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">🖼️</span>
+          <span class="ctrl-btn__label">Фоны</span>
+        </button>
+        <button id="ctrl-sound-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">🔊</span>
+          <span class="ctrl-btn__label">Звуки</span>
+        </button>
+        <button id="ctrl-chat-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">💬</span>
+          <span class="ctrl-btn__label">Чат</span>
+        </button>
+        <button id="ctrl-bot-btn" type="button" class="ctrl-btn">
+          <span class="ctrl-btn__icon">🤖</span>
+          <span class="ctrl-btn__label">Бот</span>
+        </button>
+        <button id="ctrl-hangup-btn" type="button" class="ctrl-btn ctrl-btn--danger">
+          <span class="ctrl-btn__icon">📞</span>
+          <span class="ctrl-btn__label">Выйти</span>
+        </button>
+      </nav>
+    </section>
+
+    <!-- ==================== МОДАЛЬНЫЕ ОКНА ==================== -->
+
+    <!-- 1. Создание нового собутыльника -->
+    <div id="modal-create-account" class="modal-backdrop hidden">
+      <div class="modal-card glass-panel">
+        <div class="modal-head">
+          <h3>Новый собутыльник</h3>
+          <button type="button" class="icon-close" data-close-modal="modal-create-account">✕</button>
+        </div>
+        <p id="create-slots-left" class="muted"></p>
+        <form id="create-account-form" class="stack-form">
+          <label class="field-label" for="create-name-input">Имя или прозвище</label>
+          <input id="create-name-input" type="text" maxlength="20" class="text-input" placeholder="Например: Серёга Ирк" required />
+
+          <label class="field-label">Выбери аватар</label>
+          <div id="create-avatar-grid" class="avatar-grid"></div>
+
+          <label class="field-label" for="create-pin-input">Личный 4-значный PIN (цифры 1–9)</label>
+          <input id="create-pin-input" type="text" inputmode="numeric" maxlength="4" pattern="[1-9]{4}" class="text-input mono" placeholder="Например: 1489" required />
+
+          <div id="create-error" class="form-error"></div>
+          <button type="submit" class="btn btn--primary btn--full">Прописаться в баре</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- 2. Техподдержка / Панель бармена -->
+    <div id="modal-support" class="modal-backdrop hidden">
+      <div class="modal-card glass-panel">
+        <div class="modal-head">
+          <h3>🍸 Окно бармена (Техподдержка)</h3>
+          <button type="button" class="icon-close" data-close-modal="modal-support">✕</button>
+        </div>
+
+        <div id="support-auth-step">
+          <p class="muted">Забыл PIN или нужно выгнать лишнего? Введи пароль администратора (по умолчанию в конфиге).</p>
+          <form id="support-auth-form" class="stack-form">
+            <input id="support-pass-input" type="password" class="text-input mono" placeholder="Пароль администратора" required />
+            <div id="support-error" class="form-error"></div>
+            <button type="submit" class="btn btn--primary btn--full">Открыть журнал бармена</button>
+          </form>
+        </div>
+
+        <div id="support-panel-step" class="hidden">
+          <p class="muted">Все созданные аккаунты и их PIN-коды:</p>
+          <div id="support-accounts-list" class="support-list"></div>
+          <div class="modal-footer-actions">
+            <button id="support-lock-gate-btn" type="button" class="btn btn--danger btn--sm">Сбросить ключ клуба</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Проверка камеры, микрофона и фонов -->
+    <div id="modal-device-check" class="modal-backdrop hidden">
+      <div class="modal-card modal-card--wide glass-panel">
+        <div class="modal-head">
+          <h3>🎥 Проверка камеры, звука и фонов</h3>
+          <button type="button" class="icon-close" data-close-modal="modal-device-check">✕</button>
+        </div>
+        <div class="device-check-grid">
+          <div class="device-preview-wrap">
+            <video id="device-preview-video" autoplay playsinline muted></video>
+          </div>
+          <div class="device-controls">
+            <div class="field-group">
+              <label class="field-label" for="device-cam-select">Камера</label>
+              <select id="device-cam-select" class="select-input"></select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="device-mic-select">Микрофон</label>
+              <select id="device-mic-select" class="select-input"></select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Шкала микрофона (скажи что-нибудь)</label>
+              <div class="mic-meter"><div id="device-mic-meter-fill" class="mic-meter__fill"></div></div>
+            </div>
+            <button id="device-speaker-test-btn" type="button" class="btn btn--secondary btn--full">
+              🔊 Тест наушников / колонок
+            </button>
+
+            <div class="field-group">
+              <label class="field-label">Предпросмотр виртуального фона</label>
+              <div id="device-bg-grid" class="bg-grid"></div>
+              <input id="device-blur-slider" type="range" min="4" max="32" value="14" class="range-input" />
+              <input id="device-bg-upload" type="file" accept="image/*" class="hidden" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Настройки клуба, TURN, ICE-тест и GitHub Pages -->
+    <div id="modal-settings" class="modal-backdrop hidden">
+      <div class="modal-card modal-card--wide glass-panel">
+        <div class="modal-head">
+          <h3>⚙️ Настройки клуба и связи</h3>
+          <button type="button" class="icon-close" data-close-modal="modal-settings">✕</button>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-col">
+            <div class="field-group">
+              <label class="field-label" for="settings-club-key">Секретный ключ клуба</label>
+              <input id="settings-club-key" type="text" class="text-input mono" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="settings-theme-select">Тема оформления</label>
+              <select id="settings-theme-select" class="theme-select select-input"></select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="settings-firebase-url">Firebase Realtime Database URL (опционально)</label>
+              <input id="settings-firebase-url" type="url" class="text-input mono" placeholder="https://project-rtdb.firebaseio.com" />
+              <small class="muted">Если пусто — аккаунты синкаются автоматически через PeerJS.</small>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="settings-turn-url">Кастомный TURN-сервер (опционально)</label>
+              <input id="settings-turn-url" type="text" class="text-input mono" placeholder="turn:your-turn.example.com:443?transport=tcp" />
+              <div class="two-col-inputs">
+                <input id="settings-turn-user" type="text" class="text-input mono" placeholder="TURN username" />
+                <input id="settings-turn-pass" type="password" class="text-input mono" placeholder="TURN credential" />
+              </div>
+            </div>
+            <button id="settings-save-btn" type="button" class="btn btn--primary btn--full">Сохранить настройки</button>
+          </div>
+
+          <div class="settings-col">
+            <div class="ice-box">
+              <h4>📡 Диагностика WebRTC / NAT</h4>
+              <p id="settings-ice-result" class="muted">Нажми кнопку ниже для проверки STUN и TURN-реле.</p>
+              <button id="settings-ice-test-btn" type="button" class="btn btn--secondary btn--full">
+                Тест соединения (ICE)
+              </button>
+            </div>
+
+            <div class="deploy-box">
+              <div class="deploy-box__head">
+                <h4>🚀 Деплой на GitHub Pages (AlcoSkype)</h4>
+                <button id="settings-copy-guide-btn" type="button" class="btn btn--ghost btn--sm">Копировать</button>
+              </div>
+              <pre id="settings-github-guide" class="deploy-code mono"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Чат клуба из Лобби -->
+    <div id="modal-lobby-chat" class="modal-backdrop hidden">
+      <div class="modal-card modal-card--chat glass-panel">
+        <div class="modal-head">
+          <h3>💬 Чат клуба</h3>
+          <button type="button" class="icon-close" data-close-modal="modal-lobby-chat">✕</button>
+        </div>
+        <div id="lobby-chat-messages" class="chat-messages"></div>
+        <div id="lobby-quick-toasts" class="quick-toasts"></div>
+        <form id="lobby-chat-form" class="chat-form">
+          <input id="lobby-chat-input" type="text" class="text-input" placeholder="Черкани в барный чат..." autocomplete="off" />
+          <button type="submit" class="btn btn--primary">Отправить</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- 6. Входящий звонок (Skype-стиль) -->
+    <div id="modal-incoming-call" class="modal-backdrop hidden" data-dismissible="false">
+      <div class="modal-card modal-card--call glass-panel">
+        <div class="incoming-pulse">
+          <span id="incoming-caller-avatar" class="incoming-avatar">🍺</span>
+        </div>
+        <h3 id="incoming-caller-name">Собутыльник звонит...</h3>
+        <p class="muted">Зовёт в бар прямо сейчас!</p>
+        <div class="incoming-actions">
+          <button id="incoming-accept-btn" type="button" class="btn btn--success btn--lg">📞 Взять трубку</button>
+          <button id="incoming-decline-btn" type="button" class="btn btn--danger btn--lg">Отбой</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Тосты -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Главная точка входа (чистые нативные ES6+ модули) -->
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>
